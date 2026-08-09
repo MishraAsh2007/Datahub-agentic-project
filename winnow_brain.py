@@ -11,7 +11,7 @@ def wake_up_winnow():
         )
     )
     
-    # we use a try block because if ash hasnt started the docker container yet the script will crash so this catches the error and just tells us to wait instead of blowing up
+    # we use a try block because if no docker container exists, the script will crash so this catches the error and just tells us to wait instead of blowing up
     try:
         # test_connection pings the server to see if its awake and if it returns true we print a success message and hand back the graph object so we can use it later to search for tables
         if graph.test_connection():
