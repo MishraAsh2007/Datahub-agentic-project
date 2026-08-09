@@ -1,0 +1,8 @@
+# Winnow DataHub Agent Dependencies
+# Compatible with Python 3.10+
+
+# Core DataHub Knowledge Graph SDK
+acryl-datahub~=0.12.0
+
+# Optional: Environment variable handling (if using .env for GITHUB_TOKEN)
+python-dotenv>=1.0.0
