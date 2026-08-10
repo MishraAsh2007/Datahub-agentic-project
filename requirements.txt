@@ -2,6 +2,16 @@
 # Python 3.12 works. The datahub CLI prints a "use 3.11" warning on import of its
 # entrypoints module, which is a policy notice about their test matrix, not a real
 # incompatibility. Ingestion extras with heavy native deps are where 3.12 could bite.
+#
+# IMPORTANT: this file cannot be installed with a plain `pip install -r`.
+# datahub-agent-context hard-pins acryl-datahub==1.6.0.6, which would downgrade and
+# break the 1.7.0 APIs this project uses. Install in two steps instead:
+#
+#   pip install -r requirements.txt
+#   pip install --no-deps datahub-agent-context
+#
+# The kit was verified to import and run against acryl-datahub 1.7.0 on Windows /
+# Python 3.12, so overriding its pin is deliberate, not an accident.
 
 # Core DataHub Knowledge Graph SDK.
 # Must be 1.x. The old ~=0.12.0 pin would DOWNGRADE an existing install and break
@@ -9,8 +19,23 @@
 # this project relies on do not exist in that line.
 acryl-datahub>=1.7.0,<2.0.0
 
-# LLM client. The agent talks to Groq, which serves openai/gpt-oss-20b.
+# LLM client. Groq serves openai/gpt-oss-20b (dev) and openai/gpt-oss-120b (demo).
+# Switch with WINNOW_MODEL in .env, no code change needed.
 groq>=1.6.0
 
 # Loads GROQ_API_KEY out of .env, which is gitignored so the key stays out of the repo.
 python-dotenv>=1.0.0
+
+# Transitive deps of datahub-agent-context. Listed explicitly because --no-deps skips
+# them. cachetools MUST stay below 7: the kit declares <7.0.0 and pip will happily
+# install 7.x if left unpinned.
+cachetools>=5.0.0,<7.0.0
+jmespath>=1.0.0,<2.0.0
+json-repair>=0.25.0,<1.0.0
+google-re2>=1.0,<2.0
+
+# Not declared by the kit, but it tries to import `graphql` to adapt its GraphQL
+# queries to the server's schema. Without it every kit call logs
+# "Failed to adapt query for schema compatibility" and silently falls back to the
+# unadapted query, which is a correctness risk, not just noise.
+graphql-core>=3.2.0

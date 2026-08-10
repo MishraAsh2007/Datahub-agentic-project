@@ -114,8 +114,17 @@ def list_datasets(
 
 
 def downstream_count(graph: DataHubGraph, urn: str) -> int:
-    """how many assets depend on this one. zero means nothing would break if it went away."""
-    return len(list(graph.get_related_entities(urn, ["DownstreamOf"], _DOWNSTREAM)))
+    """how many OTHER assets depend on this one. zero means nothing would break if it
+    went away.
+
+    datahub emits self referencing lineage edges: a table can appear as downstream of
+    itself, linked through a query urn, usually from a job that reads and rewrites it.
+    counting those would report a consumer that does not exist and hide a genuine
+    orphan, so a self edge is dropped. verified against the kit's get_lineage, which
+    excludes them too.
+    """
+    related = graph.get_related_entities(urn, ["DownstreamOf"], _DOWNSTREAM)
+    return len([r for r in related if r.urn != urn])
 
 
 # ---------------------------------------------------------------------------
@@ -123,10 +132,42 @@ def downstream_count(graph: DataHubGraph, urn: str) -> int:
 # ---------------------------------------------------------------------------
 
 
+def _capped(rows: List[Dict], limit: int, what: str) -> Dict:
+    """wrap results so the true total survives truncation.
+
+    model.py cuts long tool results off at a character budget. anything at the END of
+    the payload is the first thing lost, so a count placed after the rows never
+    reaches the model and it infers the total from however many rows it can see. that
+    is how a real count of 51 got reported as 25.
+
+    the counts go FIRST here, before the rows, so they survive the cut.
+    """
+    total = len(rows)
+    shown = min(limit, total)
+    return {
+        "total_found": total,
+        "showing": shown,
+        "what": what,
+        "count_note": (
+            f"{total} {what} exist in total. Only {shown} rows are listed below. "
+            "Report the total, not the number of rows you can see. Asking again with a "
+            "bigger limit will not return more."
+            if total > shown
+            else f"All {total} are listed below."
+        ),
+        "results": rows[:limit],
+    }
+
+
 def find_missing_descriptions(
     graph: DataHubGraph, platform: Optional[str] = None, limit: int = 25
 ) -> List[Dict]:
-    """datasets nobody has documented. the most common and most fixable metadata gap."""
+    """datasets nobody has documented. the most common and most fixable metadata gap.
+
+    we scan everything before truncating. stopping at `limit` mid scan and sorting
+    afterwards would only rank whatever we happened to hit first, so the worst
+    offender could sit just past the cutoff and never be seen.
+    """
     out = []
     for urn in list_datasets(graph, platform):
         if _description_of(graph, urn) is None:
@@ -138,17 +179,20 @@ def find_missing_descriptions(
                     "downstream_consumers": downstream_count(graph, urn),
                 }
             )
-        if len(out) >= limit:
-            break
+
     # something with consumers and no docs hurts more than an orphan nobody reads
     out.sort(key=lambda d: -d["downstream_consumers"])
-    return out
+    return _capped(out, limit, "undocumented datasets")
 
 
 def find_missing_tags(
     graph: DataHubGraph, platform: Optional[str] = None, limit: int = 25
-) -> List[Dict]:
-    """datasets with no tags at all, so they cannot be found by any tag based search."""
+) -> Dict:
+    """datasets with no tags at all, so they cannot be found by any tag based search.
+
+    scans the whole catalog rather than stopping at `limit`, because stopping early
+    means the reported total is just the limit and the real number stays unknown.
+    """
     out = []
     for urn in list_datasets(graph, platform):
         if not _tags_of(graph, urn):
@@ -160,9 +204,7 @@ def find_missing_tags(
                     "has_description": _description_of(graph, urn) is not None,
                 }
             )
-        if len(out) >= limit:
-            break
-    return out
+    return _capped(out, limit, "datasets with no tags")
 
 
 def find_stale_datasets(
@@ -202,12 +244,10 @@ def find_stale_datasets(
                     "downstream_consumers": downstream_count(graph, urn),
                 }
             )
-        if len(out) >= limit:
-            break
-    return out
+    return _capped(out, limit, f"datasets stale beyond {days} days (or of unknown age)")
 
 
-def find_broken_lineage(graph: DataHubGraph, limit: int = 25) -> List[Dict]:
+def find_broken_lineage(graph: DataHubGraph, limit: int = 25) -> Dict:
     """lineage edges pointing at assets that do not exist.
 
     this is how a lineage graph rots: an upstream table gets deleted but the edge
@@ -235,9 +275,7 @@ def find_broken_lineage(graph: DataHubGraph, limit: int = 25) -> List[Dict]:
                     "broken_edge_count": len(dangling),
                 }
             )
-        if len(out) >= limit:
-            break
-    return out
+    return _capped(out, limit, "datasets with broken upstream lineage")
 
 
 def find_duplicate_assets(graph: DataHubGraph, limit: int = 25) -> List[Dict]:
@@ -299,14 +337,12 @@ def find_unused_dashboards(graph: DataHubGraph, limit: int = 25) -> List[Dict]:
                     "reason": "no charts and no datasets attached",
                 }
             )
-        if len(out) >= limit:
-            break
-    return out
+    return _capped(out, limit, "dashboards with nothing attached")
 
 
 def find_orphan_datasets(
     graph: DataHubGraph, platform: Optional[str] = None, limit: int = 25
-) -> List[Dict]:
+) -> Dict:
     """datasets with zero downstream consumers. this is the original winnow job:
     nothing reads them, so deleting them breaks nothing."""
     out = []
@@ -322,9 +358,7 @@ def find_orphan_datasets(
                     "has_description": _description_of(graph, urn) is not None,
                 }
             )
-        if len(out) >= limit:
-            break
-    return out
+    return _capped(out, limit, "datasets with zero downstream consumers")
 
 
 def describe_dataset(graph: DataHubGraph, urn: str) -> Dict:
