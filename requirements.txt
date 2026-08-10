@@ -1,8 +1,16 @@
 # Winnow DataHub Agent Dependencies
-# Compatible with Python 3.10+
+# Python 3.12 works. The datahub CLI prints a "use 3.11" warning on import of its
+# entrypoints module, which is a policy notice about their test matrix, not a real
+# incompatibility. Ingestion extras with heavy native deps are where 3.12 could bite.
 
-# Core DataHub Knowledge Graph SDK
-acryl-datahub~=0.12.0
+# Core DataHub Knowledge Graph SDK.
+# Must be 1.x. The old ~=0.12.0 pin would DOWNGRADE an existing install and break
+# everything here: get_urns_by_filter, get_related_entities and the aspect classes
+# this project relies on do not exist in that line.
+acryl-datahub>=1.7.0,<2.0.0
 
-# Optional: Environment variable handling (if using .env for GITHUB_TOKEN)
+# LLM client. The agent talks to Groq, which serves openai/gpt-oss-20b.
+groq>=1.6.0
+
+# Loads GROQ_API_KEY out of .env, which is gitignored so the key stays out of the repo.
 python-dotenv>=1.0.0
